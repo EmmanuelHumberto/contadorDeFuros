@@ -1,6 +1,6 @@
 # ContadorDeFuros – ESP32-S3-Touch-LCD-4.3B
 
-Projeto baseado no exemplo **Touch Element** do ESP-IDF, preparado para a placa *ESP32-S3-Touch-LCD-4.3B* (módulo ESP32-S3-WROOM-1-N16R8, flash 16 MB + PSRAM octal 8 MB). O objetivo desta etapa foi deixar todo o ambiente pronto para que você possa focar na aplicação (contagem de furos) e na integração da tela LCD/touch.
+Projeto embarcado para medir PPM do motor, frequência e velocidade de furação em máquinas de tatuagem/dermógrafos, agora totalmente baseado em ESP-IDF + LVGL para a placa *ESP32-S3-Touch-LCD-4.3B* (módulo ESP32-S3-WROOM-1-N16R8, flash 16 MB + PSRAM octal 8 MB). Esta etapa prepara todo o ambiente para que você possa focar na lógica da aplicação (contagem de furos), UI interativa e integração com os sensores reais.
 
 ## Visão geral do que já foi feito
 
@@ -32,8 +32,11 @@ ContadorDeFuros/
 ├── build/                   # Saída de compilação (gerado pelo idf.py)
 ├── main/
 │   ├── CMakeLists.txt
-│   ├── touch_button_example_main.c
-│   └── idf_component.yml    # Inclui espressif/touch_element
+│   ├── main.c               # Aplicação LVGL do contador
+│   ├── app_types.h
+│   ├── armazenamento.c/.h   # Persistência de curso (NVS)
+│   ├── metricas.c/.h        # Cálculo de frequência/RPM/etc.
+│   └── interface_usuario.c/.h
 ├── managed_components/
 │   └── espressif__touch_element/
 ├── sdkconfig                # Gerado a partir dos defaults
@@ -91,13 +94,13 @@ idf.py -p /dev/ttyACM0 flash monitor
 
 Os artefatos principais ficam em `build/ContadorDeFuros.bin`, `build/bootloader/bootloader.bin` e `build/partition_table/partition-table.bin`.
 
-## Demo LVGL (contador de toques)
+## Aplicação LVGL
 
-- A aplicação configura o driver `esp_lcd_rgb_panel`, integra o `esp_lvgl_port` e registra o touch GT911. O label central exibe o número de toques detectados.
-- A pinagem está declarada nas macros de `main/main.c` (`LCD_PIN_*`, `s_lcd_data_pins[]`, `TOUCH_*`). Ajuste caso sua revisão da placa use outros sinais.
-- A macro `LCD_RGB_TIMING()` usa 18 MHz/35 Hz como ponto de partida. Se notar flicker, reduza `pclk_hz` ou aumente os porches.
-- `LCD_DRAW_BUFFER_HEIGHT` e `LCD_BOUNCE_BUFFER_LINES` controlam o consumo de PSRAM (desenho parcial + bounce buffer). Pode aumentar para melhorar FPS ou reduzir para economizar memória.
-- O backlight fica sempre ligado por hardware, mas há suporte no código (`LCD_PIN_BACKLIGHT`) caso deseje controlar por GPIO.
+- Configura `esp_lcd_rgb_panel`, integra `esp_lvgl_port` e registra o touch GT911. A UI traz cards (frequência, RPM, velocidade, distância, curso, total de furos), modos de expansão por toque, gráficos circulares/oscíloscópio e animações com tela de inicialização.
+- Pinagem mapeada nas macros de `main/main.c` (`LCD_PIN_*`, `s_lcd_data_pins[]`, `TOUCH_*`). Ajuste se sua revisão usar outros sinais.
+- `LCD_RGB_TIMING()` usa ~18 MHz / 35 Hz como base; ajuste conforme estabilidade da tela.
+- `LCD_DRAW_BUFFER_HEIGHT` e `LCD_BOUNCE_BUFFER_LINES` equilibram desempenho x uso de PSRAM.
+- O backlight pode ser controlado via `LCD_PIN_BACKLIGHT` caso conectado.
 
 ## Configurações importantes já embutidas
 
