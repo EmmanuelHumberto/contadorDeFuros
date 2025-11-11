@@ -1,0 +1,20 @@
+# Build artifacts
+build/
+*.bin
+*.elf
+*.map
+
+# ESP-IDF local copies and caches
+.esp-idf/
+.idf-tmp/
+.idf-component-cache/
+.espressif/
+
+# Managed components downloaded via idf.py
+managed_components/
+
+# Python caches
+__pycache__/
+
+# VS Code / tooling caches
+.vscode/.cmake/
