@@ -14,8 +14,6 @@
 #define PRIORIDADE_TAREFA        4
 #define INTERVALO_METRICAS_MS    100
 
-static const char *TAG = "metricas";
-
 static metricas_callback_t s_callback = NULL;
 static float s_curso_cm = CURSO_MAX_CM * 0.7f;
 
@@ -30,7 +28,7 @@ static volatile int64_t s_inicio_sinal_ms = 0;
 static volatile uint64_t s_tempo_sinal_ms = 0;
 
 static void configurar_gpio(void);
-static void IRAM_ATTR isr_pulso(void *arg);
+static void isr_pulso(void *arg);
 static void tarefa_metricas(void *param);
 
 esp_err_t metricas_inicializar(const configuracao_curso_t *config, metricas_callback_t callback)
