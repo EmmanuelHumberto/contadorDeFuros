@@ -1,6 +1,7 @@
 idf_component_register(
     SRCS
         "main.c"
+        "display_driver.c"
         "interface_usuario.c"
         "armazenamento.c"
         "metricas.c"

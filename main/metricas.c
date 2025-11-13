@@ -101,6 +101,7 @@ static void tarefa_metricas(void *param)
         uint32_t furos;
         bool sinal_ativo;
         int64_t ultima_atualizacao;
+        int64_t inicio_sinal_ms;
         uint64_t tempo_ms;
 
         portENTER_CRITICAL(&s_spinlock_pulso);
@@ -108,6 +109,7 @@ static void tarefa_metricas(void *param)
         furos = s_total_furos;
         sinal_ativo = s_sinal_ativo;
         ultima_atualizacao = s_ultima_atualizacao_ms;
+        inicio_sinal_ms = s_inicio_sinal_ms;
         tempo_ms = s_tempo_sinal_ms;
         portEXIT_CRITICAL(&s_spinlock_pulso);
 
@@ -118,7 +120,7 @@ static void tarefa_metricas(void *param)
         if (periodo_capturado > 0) {
             frequencia = 1000000UL / periodo_capturado;
             rpm = frequencia * 60U;
-            velocidade_cm_s = (uint32_t)(frequencia * s_curso_cm / 10.0f);
+            velocidade_cm_s = (uint32_t)(frequencia * s_curso_cm);
             if (ultimo_ms > 0) {
                 const float delta_s = (agora_ms - ultimo_ms) / 1000.0f;
                 distancia_m += (velocidade_cm_s / 100.0f) * delta_s;
@@ -132,6 +134,8 @@ static void tarefa_metricas(void *param)
             s_tempo_sinal_ms += agora_ms - s_inicio_sinal_ms;
             tempo_ms = s_tempo_sinal_ms;
             portEXIT_CRITICAL(&s_spinlock_pulso);
+            sinal_ativo = false;
+            inicio_sinal_ms = 0;
         } else if (!sinal_ativo && ultima_atualizacao > 0 && (agora_ms - ultima_atualizacao) > TEMPO_RESET_MS) {
             portENTER_CRITICAL(&s_spinlock_pulso);
             s_periodo_us = 0;
@@ -148,6 +152,11 @@ static void tarefa_metricas(void *param)
             continue;
         }
 
+        uint64_t tempo_total_ms = tempo_ms;
+        if (sinal_ativo && inicio_sinal_ms > 0 && agora_ms > inicio_sinal_ms) {
+            tempo_total_ms += (uint64_t)(agora_ms - inicio_sinal_ms);
+        }
+
         if (s_callback) {
             dados_medidos_t medicao = {
                 .frequencia_hz = frequencia,
@@ -155,7 +164,7 @@ static void tarefa_metricas(void *param)
                 .velocidade_cm_s = velocidade_cm_s,
                 .distancia_m = distancia_m,
                 .furos = furos,
-                .tempo_sinal_ms = tempo_ms,
+                .tempo_sinal_ms = tempo_total_ms,
             };
             s_callback(&medicao);
         }

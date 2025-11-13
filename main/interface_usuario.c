@@ -9,15 +9,10 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-#include "driver/gpio.h"
-#include "driver/i2c_master.h"
+#include "display_driver.h"
 #include "esp_check.h"
 #include "esp_err.h"
-#include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_rgb.h"
-#include "esp_lcd_touch_gt911.h"
 #include "esp_log.h"
-#include "esp_lvgl_port.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lvgl.h"
@@ -27,63 +22,6 @@ LV_FONT_DECLARE(lv_font_montserrat_20);
 LV_FONT_DECLARE(lv_font_montserrat_28);
 LV_FONT_DECLARE(lv_font_montserrat_48);
 LV_IMAGE_DECLARE(liga_d_logo);
-
-#define LCD_H_RES (800)
-#define LCD_V_RES (480)
-
-#define LCD_DRAW_BUFFER_HEIGHT  (80)
-#define LCD_BOUNCE_BUFFER_LINES (10)
-
-/* RGB interface timing (close to ST7262 reference timings) */
-#define LCD_RGB_TIMING()                   \
-    {                                      \
-        .pclk_hz = 18 * 1000 * 1000,       \
-        .h_res = LCD_H_RES,                \
-        .v_res = LCD_V_RES,                \
-        .hsync_pulse_width = 48,           \
-        .hsync_back_porch = 40,            \
-        .hsync_front_porch = 40,           \
-        .vsync_pulse_width = 3,            \
-        .vsync_back_porch = 29,            \
-        .vsync_front_porch = 13,           \
-        .flags.pclk_active_neg = true,     \
-    }
-
-/* GPIO mapping extracted do esquematico do kit Waveshare */
-#define LCD_PIN_DE        (GPIO_NUM_5)
-#define LCD_PIN_VSYNC     (GPIO_NUM_3)
-#define LCD_PIN_HSYNC     (GPIO_NUM_46)
-#define LCD_PIN_PCLK      (GPIO_NUM_7)
-#define LCD_PIN_DISP_EN   (GPIO_NUM_NC)
-#define LCD_BACKLIGHT_GPIO_NUM (-1)
-#define LCD_PIN_BACKLIGHT ((gpio_num_t)LCD_BACKLIGHT_GPIO_NUM)
-
-static const int s_lcd_data_pins[16] = {
-    GPIO_NUM_14,
-    GPIO_NUM_38,
-    GPIO_NUM_18,
-    GPIO_NUM_17,
-    GPIO_NUM_10,
-    GPIO_NUM_39,
-    GPIO_NUM_0,
-    GPIO_NUM_45,
-    GPIO_NUM_48,
-    GPIO_NUM_47,
-    GPIO_NUM_21,
-    GPIO_NUM_1,
-    GPIO_NUM_2,
-    GPIO_NUM_42,
-    GPIO_NUM_41,
-    GPIO_NUM_40,
-};
-
-/* GT911 touch controller */
-#define TOUCH_I2C_PORT       (0)
-#define TOUCH_I2C_CLK_HZ     (400000)
-#define TOUCH_I2C_SCL        (GPIO_NUM_9)
-#define TOUCH_I2C_SDA        (GPIO_NUM_8)
-#define TOUCH_RST_GPIO       (GPIO_NUM_NC)
-#define TOUCH_INT_GPIO       (GPIO_NUM_4)
 
 #define SCOPE_POINT_COUNT            (100)
 
@@ -101,10 +39,9 @@ typedef enum {
 
 static const char *TAG = "interface_ui";
 
-static esp_lcd_panel_handle_t panel_handle;
-static lv_display_t *lvgl_disp;
-static lv_indev_t *lvgl_touch_indev;
-static esp_lcd_touch_handle_t touch_handle;
+static display_driver_t s_display_driver;
+#define LVGL_DISPLAY (s_display_driver.lvgl_display)
+#define LVGL_TOUCH_INDEV (s_display_driver.touch_indev)
 
 /* Objetos LVGL */
 typedef struct {
@@ -135,7 +72,10 @@ static lv_obj_t *s_full_scope_chart;
 static lv_chart_series_t *s_full_scope_series;
 static lv_obj_t *s_full_scope_axis_label;
 static lv_obj_t *s_full_course_arc;
-static lv_obj_t *s_full_furos_timer_label;
+static lv_obj_t *s_speed_bar;
+static lv_obj_t *s_speed_bar_label;
+static lv_obj_t *s_furos_circle_left;
+static lv_obj_t *s_furos_circle_right;
 static card_ui_t s_cards[DISPLAY_MODE_COUNT];
 static ui_layout_t s_layout_mode = UI_LAYOUT_GRID;
 
@@ -150,7 +90,7 @@ static const char *s_metric_titles[DISPLAY_MODE_COUNT] = {
 
 static const uint32_t s_metric_colors[DISPLAY_MODE_COUNT] = {
     [DISPLAY_FREQUENCIA] = 0x1976D2,
-    [DISPLAY_RPM] = 0x00897B,
+    [DISPLAY_RPM] = 0x00C853,
     [DISPLAY_VELOCIDADE] = 0x6A1B9A,
     [DISPLAY_CURSO] = 0xF57C00,
     [DISPLAY_DISTANCIA] = 0x5D4037,
@@ -166,16 +106,12 @@ static ui_data_t s_ui_snapshot = {0};
 static portMUX_TYPE s_ui_spinlock = portMUX_INITIALIZER_UNLOCKED;
 
 /* Prototipacao */
-static esp_err_t init_rgb_panel(void);
-static esp_err_t init_lvgl_port(void);
-static esp_err_t init_touch_panel(void);
 static void build_ui(void);
 static void show_startup_screen(void);
 static void card_event_cb(lv_event_t *event);
 static void fullscreen_event_cb(lv_event_t *event);
 static void show_fullscreen(display_mode_t mode);
 static void show_grid(void);
-static void turn_on_backlight(void);
 static void refresh_ui(void);
 static void apply_ui_locked(const ui_data_t *data);
 static void update_cards_ui(const ui_data_t *data);
@@ -183,6 +119,12 @@ static void update_fullscreen_ui(const ui_data_t *data);
 static void get_metric_text(display_mode_t mode, const ui_data_t *data, char *valor, size_t valor_len, char *unidade, size_t unidade_len);
 static void formatar_distancia(char *buffer, size_t len, float distancia_m);
 static void formatar_tempo(uint64_t tempo_ms, char *buffer, size_t len);
+static uint32_t calcular_limite_distancia_cm(float distancia_m);
+static lv_color_t obter_cor_rpm(uint32_t rpm);
+static void atualizar_status_bar(const char *hint,
+                                 const char **textos,
+                                 const lv_color_t *cores,
+                                 size_t quantidade);
 static void update_scope_wave(uint32_t freq_hz);
 static void limitar_curso(void);
 static void solicitar_salvar_curso(void);
@@ -195,11 +137,8 @@ esp_err_t interface_usuario_inicializar(const configuracao_curso_t *config, cons
     s_config_curso = *config;
     s_callbacks = *callbacks;
 
-    ESP_RETURN_ON_ERROR(init_rgb_panel(), TAG, "Falha init painel RGB");
-    ESP_RETURN_ON_ERROR(init_lvgl_port(), TAG, "Falha init LVGL");
-    ESP_RETURN_ON_ERROR(init_touch_panel(), TAG, "Falha init touch");
+    ESP_RETURN_ON_ERROR(display_driver_init(&s_display_driver), TAG, "Falha init driver display");
     build_ui();
-    turn_on_backlight();
     show_startup_screen();
     return ESP_OK;
 }
@@ -229,144 +168,6 @@ void interface_usuario_configurar_curso(float curso_cm)
     s_config_curso.curso_cm = curso_cm;
     limitar_curso();
     refresh_ui();
-}
-
-static esp_err_t init_rgb_panel(void)
-{
-    esp_lcd_rgb_panel_config_t panel_config = {
-        .clk_src = LCD_CLK_SRC_PLL160M,
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 3, 0)
-        .psram_trans_align = 64,
-#else
-        .dma_burst_size = 64,
-#endif
-        .data_width = 16,
-        .de_gpio_num = LCD_PIN_DE,
-        .pclk_gpio_num = LCD_PIN_PCLK,
-        .vsync_gpio_num = LCD_PIN_VSYNC,
-        .hsync_gpio_num = LCD_PIN_HSYNC,
-        .disp_gpio_num = LCD_PIN_DISP_EN,
-        .timings = LCD_RGB_TIMING(),
-        .flags = {
-            .fb_in_psram = 1,
-        },
-        .num_fbs = 2,
-#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 3, 0)
-        .bounce_buffer_size_px = LCD_H_RES * LCD_BOUNCE_BUFFER_LINES,
-#endif
-    };
-
-    for (size_t i = 0; i < sizeof(s_lcd_data_pins) / sizeof(s_lcd_data_pins[0]); i++) {
-        panel_config.data_gpio_nums[i] = s_lcd_data_pins[i];
-    }
-
-    ESP_RETURN_ON_ERROR(esp_lcd_new_rgb_panel(&panel_config, &panel_handle), TAG, "RGB panel init failed");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(panel_handle), TAG, "Panel reset failed");
-    ESP_RETURN_ON_ERROR(esp_lcd_panel_init(panel_handle), TAG, "Panel start failed");
-
-    esp_err_t err = esp_lcd_panel_disp_on_off(panel_handle, true);
-    if (err != ESP_OK && err != ESP_ERR_NOT_SUPPORTED) {
-        ESP_LOGE(TAG, "LCD on failed (%s)", esp_err_to_name(err));
-        return err;
-    }
-    return ESP_OK;
-}
-
-static esp_err_t init_lvgl_port(void)
-{
-    const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
-    ESP_RETURN_ON_ERROR(lvgl_port_init(&lvgl_cfg), TAG, "LVGL port init failed");
-
-    const lvgl_port_display_cfg_t disp_cfg = {
-        .panel_handle = panel_handle,
-        .buffer_size = LCD_H_RES * LCD_DRAW_BUFFER_HEIGHT,
-        .double_buffer = false,
-        .trans_size = 0,
-        .hres = LCD_H_RES,
-        .vres = LCD_V_RES,
-        .monochrome = false,
-        .rotation = {
-            .swap_xy = false,
-            .mirror_x = false,
-            .mirror_y = false,
-        },
-#if LVGL_VERSION_MAJOR >= 9
-        .color_format = LV_COLOR_FORMAT_RGB565,
-#endif
-        .flags = {
-            .buff_dma = true,
-            .buff_spiram = true,
-#if LVGL_VERSION_MAJOR >= 9
-            .swap_bytes = false,
-#endif
-            .full_refresh = false,
-            .direct_mode = true,
-        },
-    };
-
-    const lvgl_port_display_rgb_cfg_t rgb_cfg = {
-        .flags = {
-            .bb_mode = true,
-            .avoid_tearing = true,
-        },
-    };
-
-    lvgl_disp = lvgl_port_add_disp_rgb(&disp_cfg, &rgb_cfg);
-    ESP_RETURN_ON_FALSE(lvgl_disp, ESP_FAIL, TAG, "Failed to register LVGL display");
-    return ESP_OK;
-}
-
-static esp_err_t init_touch_panel(void)
-{
-    i2c_master_bus_handle_t i2c_handle = NULL;
-    const i2c_master_bus_config_t i2c_cfg = {
-        .i2c_port = TOUCH_I2C_PORT,
-        .sda_io_num = TOUCH_I2C_SDA,
-        .scl_io_num = TOUCH_I2C_SCL,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags = {
-            .enable_internal_pullup = true,
-        },
-    };
-    ESP_RETURN_ON_ERROR(i2c_new_master_bus(&i2c_cfg, &i2c_handle), TAG, "I2C init failed");
-
-    esp_lcd_panel_io_handle_t tp_io_handle = NULL;
-    esp_lcd_panel_io_i2c_config_t tp_io_cfg = ESP_LCD_TOUCH_IO_I2C_GT911_CONFIG();
-    tp_io_cfg.scl_speed_hz = TOUCH_I2C_CLK_HZ;
-    ESP_RETURN_ON_ERROR(esp_lcd_new_panel_io_i2c(i2c_handle, &tp_io_cfg, &tp_io_handle), TAG, "Touch IO init failed");
-
-    const esp_lcd_touch_config_t tp_cfg = {
-        .x_max = LCD_H_RES,
-        .y_max = LCD_V_RES,
-        .rst_gpio_num = TOUCH_RST_GPIO,
-        .int_gpio_num = TOUCH_INT_GPIO,
-        .levels = {
-            .reset = 0,
-            .interrupt = 0,
-        },
-        .flags = {
-            .swap_xy = 0,
-            .mirror_x = 0,
-            .mirror_y = 0,
-        },
-    };
-    ESP_RETURN_ON_ERROR(esp_lcd_touch_new_i2c_gt911(tp_io_handle, &tp_cfg, &touch_handle), TAG, "GT911 init failed");
-
-#ifdef ESP_LVGL_PORT_TOUCH_COMPONENT
-    const lvgl_port_touch_cfg_t touch_cfg = {
-        .disp = lvgl_disp,
-        .handle = touch_handle,
-        .scale = {
-            .x = 1.0f,
-            .y = 1.0f,
-        },
-    };
-    lvgl_touch_indev = lvgl_port_add_touch(&touch_cfg);
-    ESP_RETURN_ON_FALSE(lvgl_touch_indev, ESP_FAIL, TAG, "Failed to register LVGL touch input");
-#endif
-
-    return ESP_OK;
 }
 
 static void build_ui(void)
@@ -488,6 +289,12 @@ static void build_ui(void)
     lv_bar_set_range(s_full_bar, 0, 100000);
     lv_obj_set_size(s_full_bar, LV_PCT(80), 16);
     lv_obj_align(s_full_bar, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_set_style_bg_color(s_full_bar, lv_color_hex(0x1E1E1E), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_full_bar, LV_OPA_40, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_full_bar, 8, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_full_bar, lv_color_hex(0x00E676), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_full_bar, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_full_bar, 8, LV_PART_INDICATOR | LV_STATE_DEFAULT);
     lv_obj_add_flag(s_full_bar, LV_OBJ_FLAG_HIDDEN);
 
     s_full_bar_label = lv_label_create(s_fullscreen_container);
@@ -502,11 +309,55 @@ static void build_ui(void)
     lv_obj_align(s_full_timer_label, LV_ALIGN_CENTER, 0, 120);
     lv_obj_add_flag(s_full_timer_label, LV_OBJ_FLAG_HIDDEN);
 
-    s_full_furos_timer_label = lv_label_create(s_fullscreen_container);
-    lv_obj_set_style_text_color(s_full_furos_timer_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_set_style_text_font(s_full_furos_timer_label, &lv_font_montserrat_20, 0);
-    lv_obj_align(s_full_furos_timer_label, LV_ALIGN_CENTER, 0, 130);
-    lv_obj_add_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
+    s_speed_bar = lv_bar_create(s_fullscreen_container);
+    lv_bar_set_range(s_speed_bar, 0, 500);
+    lv_obj_set_size(s_speed_bar, LV_PCT(80), 22);
+    lv_obj_align(s_speed_bar, LV_ALIGN_CENTER, 0, 70);
+    lv_obj_set_style_bg_color(s_speed_bar, lv_color_hex(0x0E111B), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_color(s_speed_bar, lv_color_hex(0x05070D), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(s_speed_bar, LV_GRAD_DIR_HOR, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_speed_bar, LV_OPA_COVER, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_speed_bar, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_speed_bar, lv_color_hex(0x00C9FF), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_color(s_speed_bar, lv_color_hex(0x6A1B9A), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(s_speed_bar, LV_GRAD_DIR_HOR, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_speed_bar, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_speed_bar, 12, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_speed_bar, LV_OBJ_FLAG_HIDDEN);
+
+    s_speed_bar_label = lv_label_create(s_fullscreen_container);
+    lv_obj_set_style_text_color(s_speed_bar_label, lv_color_hex(0xB0BEC5), 0);
+    lv_obj_set_style_text_font(s_speed_bar_label, &lv_font_montserrat_20, 0);
+    lv_obj_align(s_speed_bar_label, LV_ALIGN_CENTER, 0, 110);
+    lv_obj_add_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+
+    s_furos_circle_left = lv_arc_create(s_fullscreen_container);
+    lv_obj_set_size(s_furos_circle_left, 72, 72);
+    lv_arc_set_rotation(s_furos_circle_left, 270);
+    lv_arc_set_bg_angles(s_furos_circle_left, 0, 360);
+    lv_arc_set_range(s_furos_circle_left, 0, 500);
+    lv_arc_set_value(s_furos_circle_left, 0);
+    lv_obj_remove_style(s_furos_circle_left, NULL, LV_PART_KNOB);
+    lv_obj_set_style_arc_width(s_furos_circle_left, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_furos_circle_left, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_furos_circle_left, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_left, lv_color_hex(0xFFE0B2), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_left, lv_color_hex(0xFF7043), LV_PART_INDICATOR);
+    lv_obj_add_flag(s_furos_circle_left, LV_OBJ_FLAG_HIDDEN);
+
+    s_furos_circle_right = lv_arc_create(s_fullscreen_container);
+    lv_obj_set_size(s_furos_circle_right, 72, 72);
+    lv_arc_set_rotation(s_furos_circle_right, 270);
+    lv_arc_set_bg_angles(s_furos_circle_right, 0, 360);
+    lv_arc_set_range(s_furos_circle_right, 0, 500);
+    lv_arc_set_value(s_furos_circle_right, 0);
+    lv_obj_remove_style(s_furos_circle_right, NULL, LV_PART_KNOB);
+    lv_obj_set_style_arc_width(s_furos_circle_right, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_furos_circle_right, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_furos_circle_right, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_right, lv_color_hex(0xFFE0B2), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_right, lv_color_hex(0xFF7043), LV_PART_INDICATOR);
+    lv_obj_add_flag(s_furos_circle_right, LV_OBJ_FLAG_HIDDEN);
 
     s_full_scope_chart = lv_chart_create(s_fullscreen_container);
     lv_obj_set_size(s_full_scope_chart, LV_PCT(82), 162);
@@ -535,10 +386,13 @@ static void build_ui(void)
     lv_obj_set_style_arc_width(s_full_course_arc, 12, LV_PART_INDICATOR);
     lv_obj_add_flag(s_full_course_arc, LV_OBJ_FLAG_HIDDEN);
 
-    s_full_status = lv_label_create(s_fullscreen_container);
-    lv_obj_set_style_text_color(s_full_status, lv_color_hex(0xECEFF1), 0);
-    lv_obj_set_style_text_font(s_full_status, &lv_font_montserrat_20, 0);
-    lv_obj_set_style_text_align(s_full_status, LV_TEXT_ALIGN_CENTER, 0);
+    s_full_status = lv_obj_create(s_fullscreen_container);
+    lv_obj_remove_style_all(s_full_status);
+    lv_obj_set_size(s_full_status, LV_PCT(100), LV_SIZE_CONTENT);
+    lv_obj_set_style_pad_all(s_full_status, 0, 0);
+    lv_obj_set_style_bg_opa(s_full_status, LV_OPA_TRANSP, 0);
+    lv_obj_set_flex_flow(s_full_status, LV_FLEX_FLOW_ROW_WRAP);
+    lv_obj_set_flex_align(s_full_status, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_obj_align(s_full_status, LV_ALIGN_BOTTOM_MID, 0, -12);
 
     ui_data_t snapshot;
@@ -578,7 +432,7 @@ static void show_startup_screen(void)
     }
     lv_obj_set_style_transform_pivot_x(logo_img, logo_w / 2, 0);
     lv_obj_set_style_transform_pivot_y(logo_img, logo_h / 2, 0);
-    int32_t target_scale = (LCD_V_RES * 256) / logo_h;
+    int32_t target_scale = (DISPLAY_V_RES * 256) / logo_h;
     if (target_scale > 256) {
         target_scale = 256;
     }
@@ -689,21 +543,6 @@ static void show_grid(void)
     apply_ui_locked(&snapshot);
 }
 
-static void turn_on_backlight(void)
-{
-#if LCD_BACKLIGHT_GPIO_NUM >= 0
-    const int bl_pin = LCD_BACKLIGHT_GPIO_NUM;
-    gpio_config_t io_conf = {
-        .mode = GPIO_MODE_OUTPUT,
-        .pin_bit_mask = 1ULL << bl_pin,
-    };
-    gpio_config(&io_conf);
-    gpio_set_level(bl_pin, 1);
-#else
-    // Backlight pin nao conectado
-#endif
-}
-
 static void refresh_ui(void)
 {
     ui_data_t snapshot;
@@ -740,20 +579,18 @@ static void update_cards_ui(const ui_data_t *data)
             continue;
         }
         char valor[48];
-        char unidade[16];
+        char unidade[32];
         get_metric_text((display_mode_t)i, data, valor, sizeof(valor), unidade, sizeof(unidade));
         lv_label_set_text(card->label_titulo, s_metric_titles[i]);
-        if (i == DISPLAY_FUROS) {
-            lv_obj_set_style_text_align(card->label_valor, LV_TEXT_ALIGN_LEFT, 0);
-            lv_obj_align(card->label_valor, LV_ALIGN_CENTER, 0, -10);
-            lv_label_set_text(card->label_valor, valor);
-            lv_obj_add_flag(card->label_unidade, LV_OBJ_FLAG_HIDDEN);
-        } else {
-            lv_obj_set_style_text_align(card->label_valor, LV_TEXT_ALIGN_LEFT, 0);
-            lv_obj_align(card->label_valor, LV_ALIGN_CENTER, 0, -10);
-            lv_label_set_text(card->label_valor, valor);
+        lv_obj_set_style_text_align(card->label_valor, LV_TEXT_ALIGN_LEFT, 0);
+        lv_obj_align(card->label_valor, LV_ALIGN_CENTER, 0, -10);
+        lv_label_set_text(card->label_valor, valor);
+
+        if (strlen(unidade) > 0) {
             lv_label_set_text(card->label_unidade, unidade);
             lv_obj_clear_flag(card->label_unidade, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(card->label_unidade, LV_OBJ_FLAG_HIDDEN);
         }
     }
 }
@@ -796,10 +633,18 @@ static void update_fullscreen_ui(const ui_data_t *data)
     if (s_full_course_arc) {
         lv_obj_add_flag(s_full_course_arc, LV_OBJ_FLAG_HIDDEN);
     }
-    if (s_full_furos_timer_label) {
-        lv_obj_add_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
+    if (s_speed_bar) {
+        lv_obj_add_flag(s_speed_bar, LV_OBJ_FLAG_HIDDEN);
     }
-
+    if (s_speed_bar_label) {
+        lv_obj_add_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_furos_circle_left) {
+        lv_obj_add_flag(s_furos_circle_left, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_furos_circle_right) {
+        lv_obj_add_flag(s_furos_circle_right, LV_OBJ_FLAG_HIDDEN);
+    }
     if (s_display_mode == DISPLAY_FREQUENCIA && s_full_scope_chart && s_full_scope_series) {
         lv_obj_clear_flag(s_full_scope_chart, LV_OBJ_FLAG_HIDDEN);
         update_scope_wave(data->frequencia_hz);
@@ -809,21 +654,9 @@ static void update_fullscreen_ui(const ui_data_t *data)
         }
         lv_obj_align_to(s_full_value, s_full_scope_chart, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
-    } else if (s_full_arc && (s_display_mode == DISPLAY_RPM || s_display_mode == DISPLAY_VELOCIDADE)) {
-        uint32_t max_value;
-        uint32_t current;
-        const char *scale_text;
-
-        if (s_display_mode == DISPLAY_RPM) {
-            max_value = 15000;
-            current = data->rpm;
-            scale_text = "0 - 15k rpm";
-        } else {
-            max_value = 500;
-            current = data->velocidade_cm_s;
-            scale_text = "Velocidade (cm/s)";
-        }
-
+    } else if (s_full_arc && s_display_mode == DISPLAY_RPM) {
+        uint32_t max_value = 15000;
+        uint32_t current = data->rpm;
         if (current > max_value) {
             current = max_value;
         }
@@ -833,11 +666,42 @@ static void update_fullscreen_ui(const ui_data_t *data)
         lv_obj_align(s_full_arc, LV_ALIGN_CENTER, 0, 10);
         lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, 10);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+        lv_color_t arc_color = obter_cor_rpm(current);
+        lv_obj_set_style_arc_color(s_full_arc, arc_color, LV_PART_INDICATOR | LV_STATE_DEFAULT);
         if (s_full_arc_label) {
-            lv_label_set_text(s_full_arc_label, scale_text);
+            lv_label_set_text(s_full_arc_label, "0 - 15k rpm");
             lv_obj_clear_flag(s_full_arc_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_align(s_full_arc_label, LV_ALIGN_CENTER, 0, 160);
         }
+    } else if (s_display_mode == DISPLAY_VELOCIDADE && s_speed_bar && s_speed_bar_label) {
+        float limite_speed_f = 220.0f * s_config_curso.curso_cm;
+        if (limite_speed_f < 1.0f) {
+            limite_speed_f = 1.0f;
+        }
+        uint32_t max_speed = (uint32_t)lroundf(limite_speed_f);
+        if (max_speed == 0) {
+            max_speed = 1;
+        }
+
+        uint32_t current = data->velocidade_cm_s;
+        if (current > max_speed) {
+            current = max_speed;
+        }
+        lv_bar_set_range(s_speed_bar, 0, (int32_t)max_speed);
+        lv_bar_set_value(s_speed_bar, (int32_t)current, LV_ANIM_OFF);
+        lv_obj_clear_flag(s_speed_bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_speed_bar, LV_ALIGN_CENTER, 0, 60);
+
+        uint32_t percentual = max_speed ? (current * 100U) / max_speed : 0;
+        lv_label_set_text_fmt(s_speed_bar_label,
+                              "Boost %" PRIu32"%%   |   Limite: %" PRIu32" cm/s",
+                              percentual,
+                              max_speed);
+        lv_obj_clear_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_speed_bar_label, LV_ALIGN_CENTER, 0, 100);
+
+        lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, -90);
+        lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
     } else if (s_display_mode == DISPLAY_CURSO && s_full_course_arc) {
         float curso_mm = s_config_curso.curso_cm * 10.0f;
         if (curso_mm < 1.0f) curso_mm = 1.0f;
@@ -859,30 +723,73 @@ static void update_fullscreen_ui(const ui_data_t *data)
 
     if (s_display_mode == DISPLAY_DISTANCIA && s_full_bar && s_full_bar_label) {
         float distancia_m = data->distancia_m;
-        if (distancia_m < 0) {
-            distancia_m = 0;
+        if (distancia_m < 0.0f) {
+            distancia_m = 0.0f;
         }
         if (distancia_m > 100000.0f) {
             distancia_m = 100000.0f;
         }
-        lv_bar_set_range(s_full_bar, 0, 100000);
-        lv_bar_set_value(s_full_bar, (int32_t)distancia_m, LV_ANIM_OFF);
+
+        uint32_t distancia_cm = (uint32_t)lroundf(distancia_m * 100.0f);
+        uint32_t limite_cm = calcular_limite_distancia_cm(distancia_m);
+        if (distancia_cm > limite_cm) {
+            distancia_cm = limite_cm;
+        }
+
+        lv_bar_set_range(s_full_bar, 0, (int32_t)limite_cm);
+        lv_bar_set_value(s_full_bar, (int32_t)distancia_cm, LV_ANIM_OFF);
         lv_obj_clear_flag(s_full_bar, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(s_full_bar_label, "0 m ---------------------------- 100 km");
+
+        float limite_m = (float)limite_cm / 100.0f;
+        char distancia_txt[32];
+        char limite_txt[32];
+        formatar_distancia(distancia_txt, sizeof(distancia_txt), distancia_m);
+        formatar_distancia(limite_txt, sizeof(limite_txt), limite_m);
+        uint32_t percentual = limite_cm ? (distancia_cm * 100U) / limite_cm : 0;
+        lv_label_set_text_fmt(s_full_bar_label,
+                              "%s de %s (%" PRIu32"%%)",
+                              distancia_txt,
+                              limite_txt,
+                              percentual);
         lv_obj_clear_flag(s_full_bar_label, LV_OBJ_FLAG_HIDDEN);
+
         if (s_full_timer_label) {
             char tempo_txt[32];
             formatar_tempo(data->tempo_sinal_ms, tempo_txt, sizeof(tempo_txt));
             lv_label_set_text_fmt(s_full_timer_label, "Tempo: %s", tempo_txt);
             lv_obj_clear_flag(s_full_timer_label, LV_OBJ_FLAG_HIDDEN);
         }
-    } else if (s_display_mode == DISPLAY_FUROS && s_full_furos_timer_label) {
-        char tempo_txt[32];
-        formatar_tempo(data->tempo_sinal_ms, tempo_txt, sizeof(tempo_txt));
-        lv_label_set_text_fmt(s_full_furos_timer_label, "Tempo: %s", tempo_txt);
-        lv_obj_clear_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
+    } else if (s_display_mode == DISPLAY_FUROS) {
         lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, -10);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+        if (s_full_timer_label) {
+            char tempo_txt[32];
+            formatar_tempo(data->tempo_sinal_ms, tempo_txt, sizeof(tempo_txt));
+            lv_label_set_text_fmt(s_full_timer_label, "Tempo: %s", tempo_txt);
+            lv_obj_clear_flag(s_full_timer_label, LV_OBJ_FLAG_HIDDEN);
+        }
+
+        uint32_t furos = data->furos;
+        uint32_t progress = furos % 500U;
+        uint32_t ciclo = furos / 500U;
+        bool direita_ativa = (ciclo % 2U) == 0U;
+
+        lv_obj_t *ativo = direita_ativa ? s_furos_circle_right : s_furos_circle_left;
+        lv_obj_t *inativo = direita_ativa ? s_furos_circle_left : s_furos_circle_right;
+
+        if (inativo) {
+            lv_arc_set_value(inativo, 0);
+            lv_obj_add_flag(inativo, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (ativo) {
+            lv_arc_set_value(ativo, (int32_t)progress);
+            lv_obj_clear_flag(ativo, LV_OBJ_FLAG_HIDDEN);
+            if (ativo == s_furos_circle_right) {
+                lv_obj_align_to(ativo, s_full_value, LV_ALIGN_OUT_RIGHT_MID, 80, 0);
+            } else {
+                lv_obj_align_to(ativo, s_full_value, LV_ALIGN_OUT_LEFT_MID, -80, 0);
+            }
+        }
     }
 
     const char *hint = "Toque duplo para voltar";
@@ -891,9 +798,46 @@ static void update_fullscreen_ui(const ui_data_t *data)
                              : "Toque longo para editar o curso";
     }
 
-    lv_label_set_text_fmt(s_full_status,
-                          "Curso: %.1f mm | %s",
-                          s_config_curso.curso_cm * 10.0f, hint);
+    uint32_t cor_freq = s_metric_colors[DISPLAY_FREQUENCIA];
+    uint32_t cor_rpm = s_metric_colors[DISPLAY_RPM];
+    uint32_t cor_curso = s_metric_colors[DISPLAY_CURSO];
+    const char *status_textos[3] = {0};
+    lv_color_t status_cores[3] = {0};
+    char freq_txt[32];
+    char rpm_txt[32];
+    char curso_txt[32];
+    size_t status_count = 0;
+
+    switch (s_display_mode) {
+    case DISPLAY_FREQUENCIA:
+        snprintf(freq_txt, sizeof(freq_txt), "Freq: %" PRIu32 " Hz", data->frequencia_hz);
+        status_textos[status_count] = freq_txt;
+        status_cores[status_count++] = lv_color_hex(cor_freq);
+        snprintf(rpm_txt, sizeof(rpm_txt), "RPM: %" PRIu32, data->rpm);
+        status_textos[status_count] = rpm_txt;
+        status_cores[status_count++] = lv_color_hex(cor_rpm);
+        break;
+    case DISPLAY_RPM:
+        snprintf(freq_txt, sizeof(freq_txt), "Freq: %" PRIu32 " Hz", data->frequencia_hz);
+        status_textos[status_count] = freq_txt;
+        status_cores[status_count++] = lv_color_hex(cor_freq);
+        break;
+    case DISPLAY_VELOCIDADE:
+        snprintf(freq_txt, sizeof(freq_txt), "Freq: %" PRIu32 " Hz", data->frequencia_hz);
+        status_textos[status_count] = freq_txt;
+        status_cores[status_count++] = lv_color_hex(cor_freq);
+        snprintf(curso_txt, sizeof(curso_txt), "Curso: %.1f mm", s_config_curso.curso_cm * 10.0f);
+        status_textos[status_count] = curso_txt;
+        status_cores[status_count++] = lv_color_hex(cor_curso);
+        break;
+    default:
+        snprintf(curso_txt, sizeof(curso_txt), "Curso: %.1f mm", s_config_curso.curso_cm * 10.0f);
+        status_textos[status_count] = curso_txt;
+        status_cores[status_count++] = lv_color_hex(cor_curso);
+        break;
+    }
+
+    atualizar_status_bar(hint, status_textos, status_cores, status_count);
 }
 
 static void get_metric_text(display_mode_t mode, const ui_data_t *data,
@@ -957,6 +901,110 @@ static void formatar_tempo(uint64_t tempo_ms, char *buffer, size_t len)
     } else {
         snprintf(buffer, len, "%02llu:%02llu", (unsigned long long)minutos, (unsigned long long)segundos);
     }
+}
+
+static void atualizar_status_bar(const char *hint,
+                                 const char **textos,
+                                 const lv_color_t *cores,
+                                 size_t quantidade)
+{
+    if (!s_full_status) {
+        return;
+    }
+
+    while (lv_obj_get_child_cnt(s_full_status) > 0) {
+        lv_obj_del(lv_obj_get_child(s_full_status, 0));
+    }
+
+    lv_color_t sep_color = lv_color_hex(0xB0BEC5);
+    lv_color_t hint_color = lv_color_hex(0xECEFF1);
+    size_t items_adicionados = 0;
+
+    for (size_t i = 0; i < quantidade; i++) {
+        if (!textos[i]) {
+            continue;
+        }
+        if (items_adicionados > 0) {
+            lv_obj_t *sep = lv_label_create(s_full_status);
+            lv_label_set_text(sep, "|");
+            lv_obj_set_style_text_color(sep, sep_color, 0);
+            lv_obj_set_style_text_font(sep, &lv_font_montserrat_20, 0);
+            lv_obj_set_style_pad_left(sep, 8, 0);
+            lv_obj_set_style_pad_right(sep, 8, 0);
+        }
+        lv_obj_t *lbl = lv_label_create(s_full_status);
+        lv_label_set_text(lbl, textos[i]);
+        lv_obj_set_style_text_color(lbl, cores[i], 0);
+        lv_obj_set_style_text_font(lbl, &lv_font_montserrat_20, 0);
+        items_adicionados++;
+    }
+
+    if (hint && hint[0]) {
+        if (items_adicionados > 0) {
+            lv_obj_t *sep = lv_label_create(s_full_status);
+            lv_label_set_text(sep, "|");
+            lv_obj_set_style_text_color(sep, sep_color, 0);
+            lv_obj_set_style_text_font(sep, &lv_font_montserrat_20, 0);
+            lv_obj_set_style_pad_left(sep, 8, 0);
+            lv_obj_set_style_pad_right(sep, 8, 0);
+        }
+        lv_obj_t *hint_lbl = lv_label_create(s_full_status);
+        lv_label_set_text(hint_lbl, hint);
+        lv_obj_set_style_text_color(hint_lbl, hint_color, 0);
+        lv_obj_set_style_text_font(hint_lbl, &lv_font_montserrat_20, 0);
+    }
+}
+
+static lv_color_t obter_cor_rpm(uint32_t rpm)
+{
+    if (rpm <= 6000) {
+        return lv_color_hex(s_metric_colors[DISPLAY_RPM]);
+    }
+    if (rpm <= 7000) {
+        return lv_color_hex(0xFFD600); // amarelo
+    }
+    if (rpm <= 8000) {
+        return lv_color_hex(0xFB8C00); // laranja
+    }
+    return lv_color_hex(0xD50000); // vermelho
+}
+
+static uint32_t calcular_limite_distancia_cm(float distancia_m)
+{
+    static const uint32_t limites_cm[] = {
+        10,       // 0.10 m
+        25,       // 0.25 m
+        50,       // 0.50 m
+        100,      // 1 m
+        250,      // 2.5 m
+        500,      // 5 m
+        1000,     // 10 m
+        2500,     // 25 m
+        5000,     // 50 m
+        10000,    // 100 m
+        25000,    // 250 m
+        50000,    // 500 m
+        100000,   // 1 km
+        250000,   // 2.5 km
+        500000,   // 5 km
+        1000000,  // 10 km
+        2500000,  // 25 km
+        5000000,  // 50 km
+        10000000, // 100 km
+    };
+
+    float distancia_cm = distancia_m * 100.0f;
+    if (distancia_cm < 0.0f) {
+        distancia_cm = 0.0f;
+    }
+
+    const size_t total_limites = sizeof(limites_cm) / sizeof(limites_cm[0]);
+    for (size_t i = 0; i < total_limites; i++) {
+        if (distancia_cm <= limites_cm[i]) {
+            return limites_cm[i];
+        }
+    }
+    return limites_cm[total_limites - 1];
 }
 
 static void update_scope_wave(uint32_t freq_hz)
