@@ -1,6 +1,6 @@
 # ContadorDeFuros – ESP32-S3-Touch-LCD-4.3B
 
-Projeto embarcado para medir PPM do motor, frequência e velocidade de furação em máquinas de tatuagem/dermógrafos, agora totalmente baseado em ESP-IDF + LVGL para a placa *ESP32-S3-Touch-LCD-4.3B* (módulo ESP32-S3-WROOM-1-N16R8, flash 16 MB + PSRAM octal 8 MB). Esta etapa prepara todo o ambiente para que você possa focar na lógica da aplicação (contagem de furos), UI interativa e integração com os sensores reais.
+Projeto embarcado para medição de PPM, frequência e velocidade de furação em máquinas de tatuagem e dermógrafos, agora totalmente baseado em ESP-IDF + LVGL para a placa *ESP32-S3-Touch-LCD-4.3B* (módulo ESP32-S3-WROOM-1-N16R8, flash 16 MB + PSRAM octal 8 MB). Esta etapa prepara todo o ambiente para que você possa focar na lógica da aplicação (contagem de furos), UI interativa e integração com os sensores reais.
 
 ## Visão geral do que já foi feito
 
