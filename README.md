@@ -13,6 +13,10 @@ Projeto embarcado para medir PPM do motor, frequência e velocidade de furação
 - Inclusão automática do componente `espressif/touch_element` via `main/idf_component.yml` e materialização do pacote em `managed_components/espressif__touch_element`.
 - `idf.py build` concluído com sucesso e artefatos em `build/`.
 - O `main/main.c` agora traz uma demo LVGL que inicializa o painel RGB, configura o GT911 e exibe um contador interativo de toques.
+- Interface principal atualizada com:
+  - **Indicador de RPM** arco 0–13,5k com escala multicolor (verde → vermelho vibrante).
+  - **Tela de velocidade** com barra de *Boost* (percentual calculado dinamicamente a partir de curso × frequência) e rodapé informando a frequência instantânea.
+  - Cálculo correto da velocidade linear `curso_cm × frequência`, usado tanto nos cards quanto na barra.
 
 > **Observação**: O ESP-IDF clonado ocupa alguns GB. Como boa prática, mantenha `.esp-idf/`, `build/`, `.idf-tmp/`, `.idf-component-cache/` e `managed_components/` fora de commits (já existem regras em `.gitignore`).
 
