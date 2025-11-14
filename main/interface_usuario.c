@@ -858,7 +858,7 @@ static void update_fullscreen_ui(const ui_data_t *data)
             lv_obj_align(s_full_arc_label, LV_ALIGN_CENTER, 0, 160);
         }
     } else if (s_display_mode == DISPLAY_VELOCIDADE && s_speed_bar && s_speed_bar_label) {
-        float limite_speed_f = 2.0f * s_config_curso.curso_cm * FREQUENCIA_MAXIMA_HZ;
+        float limite_speed_f = s_config_curso.curso_cm * FREQUENCIA_MAXIMA_HZ;
         if (limite_speed_f < 1.0f) {
             limite_speed_f = 1.0f;
         }
@@ -867,8 +867,7 @@ static void update_fullscreen_ui(const ui_data_t *data)
             max_speed = 1;
         }
 
-        float deslocamento_cm = 2.0f * s_config_curso.curso_cm;
-        uint32_t current = (uint32_t)lroundf(deslocamento_cm * (float)data->frequencia_hz);
+        uint32_t current = (uint32_t)lroundf(s_config_curso.curso_cm * (float)data->frequencia_hz);
         if (current > max_speed) {
             current = max_speed;
         }
@@ -940,9 +939,19 @@ static void update_fullscreen_ui(const ui_data_t *data)
                              : "Toque longo para editar o curso";
     }
 
-    lv_label_set_text_fmt(s_full_status,
-                          "Curso: %.1f mm | %s",
-                          s_config_curso.curso_cm * 10.0f, hint);
+    if (s_display_mode == DISPLAY_VELOCIDADE) {
+        uint32_t freq = data->frequencia_hz;
+        lv_label_set_text_fmt(s_full_status,
+                              "Curso: %.1f mm | Freq: %" PRIu32 " Hz | %s",
+                              s_config_curso.curso_cm * 10.0f,
+                              freq,
+                              hint);
+    } else {
+        lv_label_set_text_fmt(s_full_status,
+                              "Curso: %.1f mm | %s",
+                              s_config_curso.curso_cm * 10.0f,
+                              hint);
+    }
 }
 
 static void get_metric_text(display_mode_t mode, const ui_data_t *data,
@@ -960,22 +969,10 @@ static void get_metric_text(display_mode_t mode, const ui_data_t *data,
         snprintf(valor, valor_len, "%" PRIu32, data->rpm);
         unit = "rpm";
         break;
-    case DISPLAY_VELOCIDADE: {
-        float deslocamento_cm = 2.0f * s_config_curso.curso_cm;
-        uint32_t velocidade = (uint32_t)lroundf(deslocamento_cm * (float)data->frequencia_hz);
-        float limite_f = 2.0f * s_config_curso.curso_cm * FREQUENCIA_MAXIMA_HZ;
-        if (limite_f < 1.0f) {
-            limite_f = 1.0f;
-        }
-        uint32_t limite = (uint32_t)lroundf(limite_f);
-        if (limite == 0U) {
-            limite = 1U;
-        }
-        uint32_t percentual = (velocidade > limite) ? 100U : (velocidade * 100U) / limite;
-        snprintf(valor, valor_len, "%" PRIu32, velocidade);
-        snprintf(unidade, unidade_len, "cm/s (%" PRIu32"%%)", percentual);
-        return;
-    }
+    case DISPLAY_VELOCIDADE:
+        snprintf(valor, valor_len, "%" PRIu32, data->velocidade_cm_s);
+        unit = "cm/s";
+        break;
     case DISPLAY_CURSO:
         snprintf(valor, valor_len, "%.1f", s_config_curso.curso_cm * 10.0f);
         unit = "mm";

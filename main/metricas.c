@@ -120,8 +120,7 @@ static void tarefa_metricas(void *param)
         if (periodo_capturado > 0) {
             frequencia = 1000000UL / periodo_capturado;
             rpm = frequencia * 60U;
-            float deslocamento_cm = 2.0f * s_curso_cm;
-            velocidade_cm_s = (uint32_t)lroundf(deslocamento_cm * (float)frequencia);
+            velocidade_cm_s = (uint32_t)lroundf(s_curso_cm * (float)frequencia);
             if (ultimo_ms > 0) {
                 const float delta_s = (agora_ms - ultimo_ms) / 1000.0f;
                 distancia_m += (velocidade_cm_s / 100.0f) * delta_s;
