@@ -17,6 +17,7 @@ Projeto embarcado para medir PPM do motor, frequência e velocidade de furação
   - **Indicador de RPM** arco 0–13,5k com escala multicolor (verde → vermelho vibrante).
   - **Tela de velocidade** com barra de *Boost* (percentual calculado dinamicamente a partir de curso × frequência) e rodapé informando a frequência instantânea.
   - Cálculo correto da velocidade linear `curso_cm × frequência`, usado tanto nos cards quanto na barra.
+- Justificativa para uso do ESP-IDF “puro”: precisamos de controle total da PSRAM octal, drivers RGB/touch oficiais, LVGL otimizado e FreeRTOS completo. Ambientes Arduino/PlatformIO podem ser usados para projetos simples, mas neste caso limitariam o acesso aos recursos avançados e exigiriam muito esforço para portar os drivers.
 
 > **Observação**: O ESP-IDF clonado ocupa alguns GB. Como boa prática, mantenha `.esp-idf/`, `build/`, `.idf-tmp/`, `.idf-component-cache/` e `managed_components/` fora de commits (já existem regras em `.gitignore`).
 
