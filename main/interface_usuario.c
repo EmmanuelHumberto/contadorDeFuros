@@ -1005,18 +1005,48 @@ static void update_fullscreen_ui(const ui_data_t *data)
                              : "Toque longo para editar o curso";
     }
 
-    if (s_display_mode == DISPLAY_VELOCIDADE) {
-        uint32_t freq = data->frequencia_hz;
+    uint32_t freq = data->frequencia_hz;
+    uint32_t rpm = data->rpm;
+    uint32_t velocidade = data->velocidade_cm_s;
+
+    switch (s_display_mode) {
+    case DISPLAY_DISTANCIA:
         lv_label_set_text_fmt(s_full_status,
-                              "Curso: %.1f mm | Freq: %" PRIu32 " Hz | %s",
-                              s_config_curso.curso_cm * 10.0f,
+                              "Freq: %" PRIu32 " Hz | %s",
                               freq,
                               hint);
-    } else {
+        break;
+    case DISPLAY_RPM:
+        lv_label_set_text_fmt(s_full_status,
+                              "Freq: %" PRIu32 " Hz | %s",
+                              freq,
+                              hint);
+        break;
+    case DISPLAY_FREQUENCIA:
+        lv_label_set_text_fmt(s_full_status,
+                              "RPM: %" PRIu32 " | %s",
+                              rpm,
+                              hint);
+        break;
+    case DISPLAY_CURSO:
+        lv_label_set_text_fmt(s_full_status,
+                              "Freq: %" PRIu32 " Hz | %s",
+                              freq,
+                              hint);
+        break;
+    case DISPLAY_FUROS:
+        lv_label_set_text_fmt(s_full_status,
+                              "Freq: %" PRIu32 " Hz | Vel: %" PRIu32 " cm/s | %s",
+                              freq,
+                              velocidade,
+                              hint);
+        break;
+    default:
         lv_label_set_text_fmt(s_full_status,
                               "Curso: %.1f mm | %s",
                               s_config_curso.curso_cm * 10.0f,
                               hint);
+        break;
     }
 }
 
