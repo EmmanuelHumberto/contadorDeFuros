@@ -86,6 +86,7 @@ static const int s_lcd_data_pins[16] = {
 #define TOUCH_INT_GPIO       (GPIO_NUM_4)
 
 #define SCOPE_POINT_COUNT            (100)
+#define FREQUENCIA_MAXIMA_HZ         (220.0f)
 
 typedef dados_medidos_t ui_data_t;
 
@@ -135,6 +136,8 @@ static lv_obj_t *s_full_scope_chart;
 static lv_chart_series_t *s_full_scope_series;
 static lv_obj_t *s_full_scope_axis_label;
 static lv_obj_t *s_full_course_arc;
+static lv_obj_t *s_speed_bar;
+static lv_obj_t *s_speed_bar_label;
 static lv_obj_t *s_full_furos_timer_label;
 static card_ui_t s_cards[DISPLAY_MODE_COUNT];
 static ui_layout_t s_layout_mode = UI_LAYOUT_GRID;
@@ -536,6 +539,26 @@ static void build_ui(void)
     lv_obj_set_style_arc_width(s_full_course_arc, 12, LV_PART_INDICATOR);
     lv_obj_add_flag(s_full_course_arc, LV_OBJ_FLAG_HIDDEN);
 
+    s_speed_bar = lv_bar_create(s_fullscreen_container);
+    lv_bar_set_range(s_speed_bar, 0, 100);
+    lv_obj_set_size(s_speed_bar, LV_PCT(80), 18);
+    lv_obj_align(s_speed_bar, LV_ALIGN_CENTER, 0, 60);
+    lv_obj_set_style_bg_color(s_speed_bar, lv_color_hex(0x263238), LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_speed_bar, LV_OPA_50, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_speed_bar, 12, LV_PART_MAIN | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_color(s_speed_bar, lv_color_hex(0xAA00FF), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_color(s_speed_bar, lv_color_hex(0x00E5FF), LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_grad_dir(s_speed_bar, LV_GRAD_DIR_HOR, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_bg_opa(s_speed_bar, LV_OPA_COVER, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_set_style_radius(s_speed_bar, 12, LV_PART_INDICATOR | LV_STATE_DEFAULT);
+    lv_obj_add_flag(s_speed_bar, LV_OBJ_FLAG_HIDDEN);
+
+    s_speed_bar_label = lv_label_create(s_fullscreen_container);
+    lv_obj_set_style_text_color(s_speed_bar_label, lv_color_hex(0xCFD8DC), 0);
+    lv_obj_set_style_text_font(s_speed_bar_label, &lv_font_montserrat_20, 0);
+    lv_obj_align(s_speed_bar_label, LV_ALIGN_CENTER, 0, 110);
+    lv_obj_add_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+
     s_full_status = lv_label_create(s_fullscreen_container);
     lv_obj_set_style_text_color(s_full_status, lv_color_hex(0xECEFF1), 0);
     lv_obj_set_style_text_font(s_full_status, &lv_font_montserrat_20, 0);
@@ -797,6 +820,12 @@ static void update_fullscreen_ui(const ui_data_t *data)
     if (s_full_course_arc) {
         lv_obj_add_flag(s_full_course_arc, LV_OBJ_FLAG_HIDDEN);
     }
+    if (s_speed_bar) {
+        lv_obj_add_flag(s_speed_bar, LV_OBJ_FLAG_HIDDEN);
+    }
+    if (s_speed_bar_label) {
+        lv_obj_add_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+    }
     if (s_full_furos_timer_label) {
         lv_obj_add_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
     }
@@ -828,25 +857,36 @@ static void update_fullscreen_ui(const ui_data_t *data)
             lv_obj_clear_flag(s_full_arc_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_align(s_full_arc_label, LV_ALIGN_CENTER, 0, 160);
         }
-    } else if (s_full_arc && s_display_mode == DISPLAY_VELOCIDADE) {
-        const uint32_t max_value = 500;
+    } else if (s_display_mode == DISPLAY_VELOCIDADE && s_speed_bar && s_speed_bar_label) {
+        float limite_speed_f = FREQUENCIA_MAXIMA_HZ * s_config_curso.curso_cm;
+        if (limite_speed_f < 1.0f) {
+            limite_speed_f = 1.0f;
+        }
+        uint32_t max_speed = (uint32_t)lroundf(limite_speed_f);
+        if (max_speed == 0) {
+            max_speed = 1;
+        }
+
         uint32_t current = data->velocidade_cm_s;
-        if (current > max_value) {
-            current = max_value;
+        if (current > max_speed) {
+            current = max_speed;
         }
-        lv_arc_set_range(s_full_arc, 0, max_value);
-        lv_arc_set_value(s_full_arc, current);
-        lv_obj_set_style_arc_color(s_full_arc, lv_color_hex(s_metric_colors[DISPLAY_VELOCIDADE]),
-                                   LV_PART_INDICATOR | LV_STATE_DEFAULT);
-        lv_obj_clear_flag(s_full_arc, LV_OBJ_FLAG_HIDDEN);
-        lv_obj_align(s_full_arc, LV_ALIGN_CENTER, 0, 10);
-        lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, 10);
+        lv_bar_set_range(s_speed_bar, 0, (int32_t)max_speed);
+        lv_bar_set_value(s_speed_bar, (int32_t)current, LV_ANIM_OFF);
+        lv_obj_clear_flag(s_speed_bar, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_speed_bar, LV_ALIGN_CENTER, 0, 60);
+
+        uint32_t percentual = max_speed ? (current * 100U) / max_speed : 0;
+        lv_label_set_text_fmt(s_speed_bar_label,
+                              "Boost %" PRIu32"%%   |   Limite: %" PRIu32" cm/s (%.0f Hz máx)",
+                              percentual,
+                              max_speed,
+                              FREQUENCIA_MAXIMA_HZ);
+        lv_obj_clear_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_speed_bar_label, LV_ALIGN_CENTER, 0, 100);
+
+        lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, -90);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
-        if (s_full_arc_label) {
-            lv_label_set_text(s_full_arc_label, "Velocidade (cm/s)");
-            lv_obj_clear_flag(s_full_arc_label, LV_OBJ_FLAG_HIDDEN);
-            lv_obj_align(s_full_arc_label, LV_ALIGN_CENTER, 0, 160);
-        }
     } else if (s_display_mode == DISPLAY_CURSO && s_full_course_arc) {
         float curso_mm = s_config_curso.curso_cm * 10.0f;
         if (curso_mm < 1.0f) curso_mm = 1.0f;
