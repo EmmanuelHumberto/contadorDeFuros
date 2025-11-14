@@ -104,6 +104,7 @@ static void tarefa_metricas(void *param)
         bool sinal_ativo;
         int64_t ultima_atualizacao;
         uint64_t tempo_ms;
+        int64_t inicio_sinal_ms;
 
         portENTER_CRITICAL(&s_spinlock_pulso);
         periodo_capturado = s_periodo_us;
@@ -111,11 +112,23 @@ static void tarefa_metricas(void *param)
         sinal_ativo = s_sinal_ativo;
         ultima_atualizacao = s_ultima_atualizacao_ms;
         tempo_ms = s_tempo_sinal_ms;
+        inicio_sinal_ms = s_inicio_sinal_ms;
         portEXIT_CRITICAL(&s_spinlock_pulso);
 
         uint32_t frequencia = 0;
         uint32_t rpm = 0;
         uint32_t velocidade_cm_s = 0;
+        uint64_t tempo_exibicao_ms = tempo_ms;
+
+        if (sinal_ativo && inicio_sinal_ms > 0 && agora_ms > inicio_sinal_ms) {
+            tempo_exibicao_ms += (uint64_t)(agora_ms - inicio_sinal_ms);
+        }
+
+        bool pulso_inativo = (ultima_atualizacao > 0) &&
+                             ((agora_ms - ultima_atualizacao) > TEMPO_IDLE_MS);
+        if (pulso_inativo) {
+            periodo_capturado = 0;
+        }
 
         if (periodo_capturado > 0) {
             frequencia = 1000000UL / periodo_capturado;
@@ -126,13 +139,17 @@ static void tarefa_metricas(void *param)
                 distancia_m += (velocidade_cm_s / 100.0f) * delta_s;
             }
             ultimo_ms = agora_ms;
+        } else {
+            ultimo_ms = agora_ms;
         }
 
-        if (sinal_ativo && ultima_atualizacao > 0 && (agora_ms - ultima_atualizacao) > TEMPO_IDLE_MS) {
+        if (sinal_ativo && pulso_inativo) {
             portENTER_CRITICAL(&s_spinlock_pulso);
             s_sinal_ativo = false;
             s_tempo_sinal_ms += agora_ms - s_inicio_sinal_ms;
             tempo_ms = s_tempo_sinal_ms;
+            tempo_exibicao_ms = tempo_ms;
+            s_periodo_us = 0;
             portEXIT_CRITICAL(&s_spinlock_pulso);
         } else if (!sinal_ativo && ultima_atualizacao > 0 && (agora_ms - ultima_atualizacao) > TEMPO_RESET_MS) {
             portENTER_CRITICAL(&s_spinlock_pulso);
@@ -157,7 +174,7 @@ static void tarefa_metricas(void *param)
                 .velocidade_cm_s = velocidade_cm_s,
                 .distancia_m = distancia_m,
                 .furos = furos,
-                .tempo_sinal_ms = tempo_ms,
+                .tempo_sinal_ms = tempo_exibicao_ms,
             };
             s_callback(&medicao);
         }
