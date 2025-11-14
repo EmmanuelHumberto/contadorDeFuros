@@ -961,8 +961,21 @@ static void get_metric_text(display_mode_t mode, const ui_data_t *data,
         unit = "rpm";
         break;
     case DISPLAY_VELOCIDADE:
-        snprintf(valor, valor_len, "%" PRIu32, data->velocidade_cm_s);
-        unit = "cm/s";
+        {
+            uint32_t velocidade = data->velocidade_cm_s;
+            float limite_f = FREQUENCIA_MAXIMA_HZ * s_config_curso.curso_cm;
+            if (limite_f < 1.0f) {
+                limite_f = 1.0f;
+            }
+            uint32_t limite = (uint32_t)lroundf(limite_f);
+            if (limite == 0U) {
+                limite = 1U;
+            }
+            uint32_t percentual = (velocidade > limite) ? 100U : (velocidade * 100U) / limite;
+            snprintf(valor, valor_len, "%" PRIu32, velocidade);
+            snprintf(unidade, unidade_len, "cm/s (%" PRIu32"%%)", percentual);
+            return;
+        }
         break;
     case DISPLAY_CURSO:
         snprintf(valor, valor_len, "%.1f", s_config_curso.curso_cm * 10.0f);
