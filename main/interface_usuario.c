@@ -138,7 +138,8 @@ static lv_obj_t *s_full_scope_axis_label;
 static lv_obj_t *s_full_course_arc;
 static lv_obj_t *s_speed_bar;
 static lv_obj_t *s_speed_bar_label;
-static lv_obj_t *s_full_furos_timer_label;
+static lv_obj_t *s_furos_circle_left;
+static lv_obj_t *s_furos_circle_right;
 static card_ui_t s_cards[DISPLAY_MODE_COUNT];
 static ui_layout_t s_layout_mode = UI_LAYOUT_GRID;
 
@@ -186,6 +187,7 @@ static void update_fullscreen_ui(const ui_data_t *data);
 static void get_metric_text(display_mode_t mode, const ui_data_t *data, char *valor, size_t valor_len, char *unidade, size_t unidade_len);
 static void formatar_distancia(char *buffer, size_t len, float distancia_m);
 static void formatar_tempo(uint64_t tempo_ms, char *buffer, size_t len);
+static uint32_t calcular_limite_distancia_cm(float distancia_m);
 static void update_scope_wave(uint32_t freq_hz);
 static void limitar_curso(void);
 static void solicitar_salvar_curso(void);
@@ -506,12 +508,6 @@ static void build_ui(void)
     lv_obj_align(s_full_timer_label, LV_ALIGN_CENTER, 0, 120);
     lv_obj_add_flag(s_full_timer_label, LV_OBJ_FLAG_HIDDEN);
 
-    s_full_furos_timer_label = lv_label_create(s_fullscreen_container);
-    lv_obj_set_style_text_color(s_full_furos_timer_label, lv_color_hex(0xE0E0E0), 0);
-    lv_obj_set_style_text_font(s_full_furos_timer_label, &lv_font_montserrat_20, 0);
-    lv_obj_align(s_full_furos_timer_label, LV_ALIGN_CENTER, 0, 130);
-    lv_obj_add_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
-
     s_full_scope_chart = lv_chart_create(s_fullscreen_container);
     lv_obj_set_size(s_full_scope_chart, LV_PCT(82), 162);
     lv_obj_align(s_full_scope_chart, LV_ALIGN_CENTER, 0, -5);
@@ -558,6 +554,34 @@ static void build_ui(void)
     lv_obj_set_style_text_font(s_speed_bar_label, &lv_font_montserrat_20, 0);
     lv_obj_align(s_speed_bar_label, LV_ALIGN_CENTER, 0, 110);
     lv_obj_add_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
+
+    s_furos_circle_left = lv_arc_create(s_fullscreen_container);
+    lv_obj_set_size(s_furos_circle_left, 72, 72);
+    lv_arc_set_rotation(s_furos_circle_left, 270);
+    lv_arc_set_bg_angles(s_furos_circle_left, 0, 360);
+    lv_arc_set_range(s_furos_circle_left, 0, 500);
+    lv_arc_set_value(s_furos_circle_left, 0);
+    lv_obj_remove_style(s_furos_circle_left, NULL, LV_PART_KNOB);
+    lv_obj_set_style_arc_width(s_furos_circle_left, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_furos_circle_left, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_furos_circle_left, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_left, lv_color_hex(0xFFE0B2), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_left, lv_color_hex(0xFF7043), LV_PART_INDICATOR);
+    lv_obj_add_flag(s_furos_circle_left, LV_OBJ_FLAG_HIDDEN);
+
+    s_furos_circle_right = lv_arc_create(s_fullscreen_container);
+    lv_obj_set_size(s_furos_circle_right, 72, 72);
+    lv_arc_set_rotation(s_furos_circle_right, 270);
+    lv_arc_set_bg_angles(s_furos_circle_right, 0, 360);
+    lv_arc_set_range(s_furos_circle_right, 0, 500);
+    lv_arc_set_value(s_furos_circle_right, 0);
+    lv_obj_remove_style(s_furos_circle_right, NULL, LV_PART_KNOB);
+    lv_obj_set_style_arc_width(s_furos_circle_right, 6, LV_PART_MAIN);
+    lv_obj_set_style_arc_width(s_furos_circle_right, 6, LV_PART_INDICATOR);
+    lv_obj_set_style_arc_opa(s_furos_circle_right, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_right, lv_color_hex(0xFFE0B2), LV_PART_MAIN);
+    lv_obj_set_style_arc_color(s_furos_circle_right, lv_color_hex(0xFF7043), LV_PART_INDICATOR);
+    lv_obj_add_flag(s_furos_circle_right, LV_OBJ_FLAG_HIDDEN);
 
     s_full_status = lv_label_create(s_fullscreen_container);
     lv_obj_set_style_text_color(s_full_status, lv_color_hex(0xECEFF1), 0);
@@ -826,10 +850,12 @@ static void update_fullscreen_ui(const ui_data_t *data)
     if (s_speed_bar_label) {
         lv_obj_add_flag(s_speed_bar_label, LV_OBJ_FLAG_HIDDEN);
     }
-    if (s_full_furos_timer_label) {
-        lv_obj_add_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
+    if (s_furos_circle_left) {
+        lv_obj_add_flag(s_furos_circle_left, LV_OBJ_FLAG_HIDDEN);
     }
-
+    if (s_furos_circle_right) {
+        lv_obj_add_flag(s_furos_circle_right, LV_OBJ_FLAG_HIDDEN);
+    }
     if (s_display_mode == DISPLAY_FREQUENCIA && s_full_scope_chart && s_full_scope_series) {
         lv_obj_clear_flag(s_full_scope_chart, LV_OBJ_FLAG_HIDDEN);
         update_scope_wave(data->frequencia_hz);
@@ -907,30 +933,70 @@ static void update_fullscreen_ui(const ui_data_t *data)
 
     if (s_display_mode == DISPLAY_DISTANCIA && s_full_bar && s_full_bar_label) {
         float distancia_m = data->distancia_m;
-        if (distancia_m < 0) {
-            distancia_m = 0;
+        if (distancia_m < 0.0f) {
+            distancia_m = 0.0f;
         }
         if (distancia_m > 100000.0f) {
             distancia_m = 100000.0f;
         }
-        lv_bar_set_range(s_full_bar, 0, 100000);
-        lv_bar_set_value(s_full_bar, (int32_t)distancia_m, LV_ANIM_OFF);
-        lv_obj_clear_flag(s_full_bar, LV_OBJ_FLAG_HIDDEN);
-        lv_label_set_text(s_full_bar_label, "0 m ---------------------------- 100 km");
-        lv_obj_clear_flag(s_full_bar_label, LV_OBJ_FLAG_HIDDEN);
-        if (s_full_timer_label) {
-            char tempo_txt[32];
-            formatar_tempo(data->tempo_sinal_ms, tempo_txt, sizeof(tempo_txt));
-            lv_label_set_text_fmt(s_full_timer_label, "Tempo: %s", tempo_txt);
-            lv_obj_clear_flag(s_full_timer_label, LV_OBJ_FLAG_HIDDEN);
+        uint32_t distancia_cm = (uint32_t)lroundf(distancia_m * 100.0f);
+        uint32_t limite_cm = calcular_limite_distancia_cm(distancia_m);
+        if (limite_cm == 0U) {
+            limite_cm = 1U;
         }
-    } else if (s_display_mode == DISPLAY_FUROS && s_full_furos_timer_label) {
-        char tempo_txt[32];
-        formatar_tempo(data->tempo_sinal_ms, tempo_txt, sizeof(tempo_txt));
-        lv_label_set_text_fmt(s_full_furos_timer_label, "Tempo: %s", tempo_txt);
-        lv_obj_clear_flag(s_full_furos_timer_label, LV_OBJ_FLAG_HIDDEN);
+        if (distancia_cm > limite_cm) {
+            distancia_cm = limite_cm;
+        }
+
+        lv_bar_set_range(s_full_bar, 0, (int32_t)limite_cm);
+        lv_bar_set_value(s_full_bar, (int32_t)distancia_cm, LV_ANIM_OFF);
+        lv_obj_clear_flag(s_full_bar, LV_OBJ_FLAG_HIDDEN);
+
+        char distancia_txt[32];
+        char limite_txt[32];
+        formatar_distancia(distancia_txt, sizeof(distancia_txt), distancia_m);
+        formatar_distancia(limite_txt, sizeof(limite_txt), limite_cm / 100.0f);
+        uint32_t percentual = limite_cm ? (distancia_cm * 100U) / limite_cm : 0U;
+        lv_label_set_text_fmt(s_full_bar_label,
+                              "%s de %s (%" PRIu32"%%)",
+                              distancia_txt,
+                              limite_txt,
+                              percentual);
+        lv_obj_clear_flag(s_full_bar_label, LV_OBJ_FLAG_HIDDEN);
+    } else if (s_display_mode == DISPLAY_FUROS) {
         lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, -10);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+
+        uint32_t furos = data->furos;
+        uint32_t progress = furos % 500U;
+        uint32_t ciclo = furos / 500U;
+        bool direita_ativa = (ciclo % 2U) == 0U;
+
+        lv_obj_t *ativo = direita_ativa ? s_furos_circle_right : s_furos_circle_left;
+        lv_obj_t *inativo = direita_ativa ? s_furos_circle_left : s_furos_circle_right;
+
+        if (inativo) {
+            lv_arc_set_value(inativo, 0);
+            lv_obj_add_flag(inativo, LV_OBJ_FLAG_HIDDEN);
+        }
+        if (ativo) {
+            lv_arc_set_value(ativo, (int32_t)progress);
+            lv_obj_clear_flag(ativo, LV_OBJ_FLAG_HIDDEN);
+            if (ativo == s_furos_circle_right) {
+                lv_obj_align_to(ativo, s_full_value, LV_ALIGN_OUT_RIGHT_MID, 80, 0);
+            } else {
+                lv_obj_align_to(ativo, s_full_value, LV_ALIGN_OUT_LEFT_MID, -80, 0);
+            }
+        }
+    }
+
+    bool mostrar_tempo = (data->tempo_sinal_ms > 0) &&
+                         (s_display_mode == DISPLAY_DISTANCIA || s_display_mode == DISPLAY_FUROS);
+    if (mostrar_tempo && s_full_timer_label) {
+        char tempo_txt[32];
+        formatar_tempo(data->tempo_sinal_ms, tempo_txt, sizeof(tempo_txt));
+        lv_label_set_text_fmt(s_full_timer_label, "Tempo: %s", tempo_txt);
+        lv_obj_clear_flag(s_full_timer_label, LV_OBJ_FLAG_HIDDEN);
     }
 
     const char *hint = "Toque duplo para voltar";
@@ -1015,6 +1081,40 @@ static void formatar_tempo(uint64_t tempo_ms, char *buffer, size_t len)
     } else {
         snprintf(buffer, len, "%02llu:%02llu", (unsigned long long)minutos, (unsigned long long)segundos);
     }
+}
+
+static uint32_t calcular_limite_distancia_cm(float distancia_m)
+{
+    static const uint32_t limites_cm[] = {
+        10,        // 0.10 m
+        25,        // 0.25 m
+        50,        // 0.50 m
+        100,       // 1 m
+        250,       // 2.5 m
+        500,       // 5 m
+        1000,      // 10 m
+        2500,      // 25 m
+        5000,      // 50 m
+        10000,     // 100 m
+        25000,     // 250 m
+        50000,     // 500 m
+        100000,    // 1 km
+        250000,    // 2.5 km
+        500000,    // 5 km
+        1000000,   // 10 km
+        2500000,   // 25 km
+        5000000,   // 50 km
+        10000000,  // 100 km
+    };
+
+    uint32_t distancia_cm = (uint32_t)lroundf(distancia_m * 100.0f);
+    const size_t total = sizeof(limites_cm) / sizeof(limites_cm[0]);
+    for (size_t i = 0; i < total; i++) {
+        if (distancia_cm <= limites_cm[i]) {
+            return limites_cm[i];
+        }
+    }
+    return limites_cm[total - 1];
 }
 
 static lv_color_t obter_cor_intervalo_rpm(uint32_t rpm)
