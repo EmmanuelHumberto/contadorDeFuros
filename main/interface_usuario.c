@@ -186,6 +186,7 @@ static void formatar_tempo(uint64_t tempo_ms, char *buffer, size_t len);
 static void update_scope_wave(uint32_t freq_hz);
 static void limitar_curso(void);
 static void solicitar_salvar_curso(void);
+static lv_color_t obter_cor_intervalo_rpm(uint32_t rpm);
 
 esp_err_t interface_usuario_inicializar(const configuracao_curso_t *config, const ui_callbacks_t *callbacks)
 {
@@ -809,32 +810,40 @@ static void update_fullscreen_ui(const ui_data_t *data)
         }
         lv_obj_align_to(s_full_value, s_full_scope_chart, LV_ALIGN_OUT_BOTTOM_MID, 0, 10);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
-    } else if (s_full_arc && (s_display_mode == DISPLAY_RPM || s_display_mode == DISPLAY_VELOCIDADE)) {
-        uint32_t max_value;
-        uint32_t current;
-        const char *scale_text;
-
-        if (s_display_mode == DISPLAY_RPM) {
-            max_value = 15000;
-            current = data->rpm;
-            scale_text = "0 - 15k rpm";
-        } else {
-            max_value = 500;
-            current = data->velocidade_cm_s;
-            scale_text = "Velocidade (cm/s)";
-        }
-
+    } else if (s_full_arc && s_display_mode == DISPLAY_RPM) {
+        const uint32_t max_value = 13500;
+        uint32_t current = data->rpm;
         if (current > max_value) {
             current = max_value;
         }
         lv_arc_set_range(s_full_arc, 0, max_value);
         lv_arc_set_value(s_full_arc, current);
+        lv_obj_set_style_arc_color(s_full_arc, obter_cor_intervalo_rpm(current), LV_PART_INDICATOR | LV_STATE_DEFAULT);
         lv_obj_clear_flag(s_full_arc, LV_OBJ_FLAG_HIDDEN);
         lv_obj_align(s_full_arc, LV_ALIGN_CENTER, 0, 10);
         lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, 10);
         lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
         if (s_full_arc_label) {
-            lv_label_set_text(s_full_arc_label, scale_text);
+            lv_label_set_text(s_full_arc_label, "0 - 13.5k rpm");
+            lv_obj_clear_flag(s_full_arc_label, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_align(s_full_arc_label, LV_ALIGN_CENTER, 0, 160);
+        }
+    } else if (s_full_arc && s_display_mode == DISPLAY_VELOCIDADE) {
+        const uint32_t max_value = 500;
+        uint32_t current = data->velocidade_cm_s;
+        if (current > max_value) {
+            current = max_value;
+        }
+        lv_arc_set_range(s_full_arc, 0, max_value);
+        lv_arc_set_value(s_full_arc, current);
+        lv_obj_set_style_arc_color(s_full_arc, lv_color_hex(s_metric_colors[DISPLAY_VELOCIDADE]),
+                                   LV_PART_INDICATOR | LV_STATE_DEFAULT);
+        lv_obj_clear_flag(s_full_arc, LV_OBJ_FLAG_HIDDEN);
+        lv_obj_align(s_full_arc, LV_ALIGN_CENTER, 0, 10);
+        lv_obj_align(s_full_value, LV_ALIGN_CENTER, 0, 10);
+        lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 4);
+        if (s_full_arc_label) {
+            lv_label_set_text(s_full_arc_label, "Velocidade (cm/s)");
             lv_obj_clear_flag(s_full_arc_label, LV_OBJ_FLAG_HIDDEN);
             lv_obj_align(s_full_arc_label, LV_ALIGN_CENTER, 0, 160);
         }
@@ -957,6 +966,29 @@ static void formatar_tempo(uint64_t tempo_ms, char *buffer, size_t len)
     } else {
         snprintf(buffer, len, "%02llu:%02llu", (unsigned long long)minutos, (unsigned long long)segundos);
     }
+}
+
+static lv_color_t obter_cor_intervalo_rpm(uint32_t rpm)
+{
+    if (rpm <= 4000) {
+        return lv_color_hex(0x4CAF50); // verde
+    }
+    if (rpm <= 5000) {
+        return lv_color_hex(0x2E7D32); // verde escuro
+    }
+    if (rpm <= 6000) {
+        return lv_color_hex(0xFFEB3B); // amarelo
+    }
+    if (rpm <= 7000) {
+        return lv_color_hex(0xFBC02D); // amarelo escuro
+    }
+    if (rpm <= 8000) {
+        return lv_color_hex(0xFB8C00); // laranja
+    }
+    if (rpm <= 9000) {
+        return lv_color_hex(0xE53935); // vermelho padrão
+    }
+    return lv_color_hex(0xFF1744); // vermelho vibrante acima de 9000
 }
 
 static void update_scope_wave(uint32_t freq_hz)
