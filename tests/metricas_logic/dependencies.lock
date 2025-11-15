@@ -1,0 +1,24 @@
+dependencies:
+  esp_lcd_touch:
+    dependencies: []
+    source:
+      path: /home/emmanuelhiatus/ContadorDeFuros/components/esp_lcd_touch
+      type: local
+    version: 1.1.2
+  idf:
+    source:
+      type: idf
+    version: 6.1.0
+  lvgl:
+    dependencies: []
+    source:
+      path: /home/emmanuelhiatus/ContadorDeFuros/components/lvgl
+      type: local
+    version: 9.4.0
+direct_dependencies:
+- espressif/esp_lcd_touch
+- idf
+- lvgl/lvgl
+manifest_hash: f0398c67997f0f29aee3b39a262e9aee2e6445ec5defe2318c54cbcdbf104f65
+target: esp32s3
+version: 2.0.0

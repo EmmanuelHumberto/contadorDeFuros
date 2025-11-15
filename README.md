@@ -107,6 +107,27 @@ Os artefatos principais ficam em `build/ContadorDeFuros.bin`, `build/bootloader/
 - `LCD_DRAW_BUFFER_HEIGHT` e `LCD_BOUNCE_BUFFER_LINES` equilibram desempenho x uso de PSRAM.
 - O backlight pode ser controlado via `LCD_PIN_BACKLIGHT` caso conectado.
 
+### Guia de estilo / paleta
+
+- Mantemos o **modo escuro** como padrão (tons `THEME_BG_DARK` e `THEME_BG_DARK_PANEL`). Sempre que criar novos painéis, herde essas cores ou utilize tons com contraste semelhante.
+- As cores dos cards estão centralizadas em `s_metric_colors[]` (`main/interface_usuario.c`). Cada valor destacado no rodapé usa essa paleta. Ao adicionar novos cards/estados, inclua a cor desejada nesse array em vez de hardcode.
+- Evite criar widgets LVGL dinamicamente dentro do loop de atualização; prepare tudo em `build_ui()` e apenas atualize os valores. Isso garante baixo consumo de RAM e previne fragmentação.
+- Qualquer ajuste visual relevante (novas fontes, tamanhos, saturação) deve ser descrito neste README para manter consistência entre contribuições.
+
+### Testes e validação de métricas
+
+- Funções auxiliares de cálculo de velocidade/distância estão em `main/metricas_logic.c`. Elas são usadas tanto no firmware quanto em testes unitários.
+- Para rodar os testes de lógica (Unity), execute:
+
+  ```bash
+  cd tests/metricas_logic
+  idf.py set-target esp32s3
+  idf.py build
+  idf.py flash monitor -p /dev/ttyACM0   # executa os testes na placa
+  ```
+
+  Esses testes validam, por exemplo, que a velocidade zera quando a frequência para e que a distância não cresce sem movimento.
+
 ## Configurações importantes já embutidas
 
 | Item                       | Configuração atual                         | Origem                |

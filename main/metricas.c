@@ -1,4 +1,5 @@
 #include "metricas.h"
+#include "metricas_logic.h"
 
 #include <math.h>
 
@@ -133,15 +134,15 @@ static void tarefa_metricas(void *param)
         if (periodo_capturado > 0) {
             frequencia = 1000000UL / periodo_capturado;
             rpm = frequencia * 60U;
-            velocidade_cm_s = (uint32_t)lroundf(s_curso_cm * (float)frequencia);
-            if (ultimo_ms > 0) {
-                const float delta_s = (agora_ms - ultimo_ms) / 1000.0f;
-                distancia_m += (velocidade_cm_s / 100.0f) * delta_s;
-            }
-            ultimo_ms = agora_ms;
-        } else {
-            ultimo_ms = agora_ms;
+            const float velocidade_calc = metricas_calcular_velocidade(s_curso_cm, frequencia);
+            velocidade_cm_s = (uint32_t)lroundf(velocidade_calc);
         }
+
+        if (ultimo_ms > 0) {
+            const float delta_s = (agora_ms - ultimo_ms) / 1000.0f;
+            distancia_m = metricas_incrementar_distancia(distancia_m, velocidade_cm_s, delta_s);
+        }
+        ultimo_ms = agora_ms;
 
         if (sinal_ativo && pulso_inativo) {
             portENTER_CRITICAL(&s_spinlock_pulso);

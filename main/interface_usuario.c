@@ -131,7 +131,6 @@ static lv_obj_t *s_fullscreen_container;
 static lv_obj_t *s_full_title;
 static lv_obj_t *s_full_value;
 static lv_obj_t *s_full_unit;
-static lv_obj_t *s_full_extra_label;
 static lv_obj_t *s_full_status;
 static lv_obj_t *s_full_arc;
 static lv_obj_t *s_full_arc_label;
@@ -149,7 +148,7 @@ static lv_obj_t *s_furos_circle_right;
 static card_ui_t s_cards[DISPLAY_MODE_COUNT];
 static ui_layout_t s_layout_mode = UI_LAYOUT_GRID;
 
-static const char *s_metric_titles[DISPLAY_MODE_COUNT] = {
+static const char *const s_metric_titles[DISPLAY_MODE_COUNT] = {
     [DISPLAY_FREQUENCIA] = "Frequencia",
     [DISPLAY_RPM] = "RPM",
     [DISPLAY_VELOCIDADE] = "Velocidade",
@@ -483,15 +482,6 @@ static void build_ui(void)
     lv_obj_set_style_text_font(s_full_unit, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_align(s_full_unit, LV_TEXT_ALIGN_CENTER, 0);
     lv_obj_align_to(s_full_unit, s_full_value, LV_ALIGN_OUT_BOTTOM_MID, 0, 6);
-
-    s_full_extra_label = lv_label_create(s_fullscreen_container);
-    lv_obj_set_style_text_color(s_full_extra_label, lv_color_hex(0xFFE082), 0);
-    lv_obj_set_style_text_font(s_full_extra_label, &lv_font_montserrat_20, 0);
-    lv_label_set_recolor(s_full_extra_label, true);
-    lv_obj_set_style_text_align(s_full_extra_label, LV_TEXT_ALIGN_CENTER, 0);
-    lv_obj_align_to(s_full_extra_label, s_full_unit, LV_ALIGN_OUT_BOTTOM_MID, 0, 12);
-    lv_label_set_text(s_full_extra_label, "");
-    lv_obj_add_flag(s_full_extra_label, LV_OBJ_FLAG_HIDDEN);
 
     s_full_arc = lv_arc_create(s_fullscreen_container);
     lv_obj_set_size(s_full_arc, 288, 288);
@@ -840,11 +830,6 @@ static void update_fullscreen_ui(const ui_data_t *data)
     lv_label_set_text(s_full_title, s_metric_titles[s_display_mode]);
     lv_label_set_text(s_full_value, valor);
     lv_label_set_text(s_full_unit, unidade);
-    if (s_full_extra_label) {
-        lv_label_set_text(s_full_extra_label, "");
-        lv_obj_add_flag(s_full_extra_label, LV_OBJ_FLAG_HIDDEN);
-    }
-
     if (s_full_arc) {
         lv_obj_add_flag(s_full_arc, LV_OBJ_FLAG_HIDDEN);
     }
