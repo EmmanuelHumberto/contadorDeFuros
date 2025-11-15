@@ -8,6 +8,7 @@
 #include "armazenamento.h"
 #include "interface_usuario.h"
 #include "metricas.h"
+#include "wifi_manager.h"
 
 static const char *TAG = "app_main";
 
@@ -30,6 +31,15 @@ static void metricas_callback(const dados_medidos_t *dados)
     interface_usuario_atualizar(dados);
 }
 
+static void wifi_conectar_callback(const char *ssid, const char *senha)
+{
+    ESP_LOGI(TAG, "Solicitando conexao Wi-Fi para SSID: %s", ssid);
+    esp_err_t err = wifi_manager_connect(ssid, senha);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Falha ao conectar Wi-Fi (0x%x)", err);
+    }
+}
+
 static void inicializar_nvs(void)
 {
     esp_err_t err = nvs_flash_init();
@@ -49,6 +59,7 @@ void app_main(void)
 
     ui_callbacks_t callbacks = {
         .ao_solicitar_salvar_curso = salvar_curso_callback,
+        .ao_solicitar_wifi_conectar = wifi_conectar_callback,
     };
 
     ESP_LOGI(TAG, "Inicializando interface grafica...");
@@ -56,6 +67,12 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Inicializando modulo de metricas...");
     ESP_ERROR_CHECK(metricas_inicializar(&s_configuracao, metricas_callback));
+
+    ESP_LOGI(TAG, "Inicializando Wi-Fi (modo configuracao)...");
+    esp_err_t wifi_err = wifi_manager_init();
+    if (wifi_err != ESP_OK) {
+        ESP_LOGE(TAG, "Falha ao inicializar Wi-Fi (0x%x)", wifi_err);
+    }
 
     ESP_LOGI(TAG, "Sistema pronto. Toque na tela para navegar entre os cards.");
 }

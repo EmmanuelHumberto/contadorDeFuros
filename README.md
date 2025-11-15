@@ -106,6 +106,7 @@ Os artefatos principais ficam em `build/ContadorDeFuros.bin`, `build/bootloader/
 - `LCD_RGB_TIMING()` usa ~18 MHz / 35 Hz como base; ajuste conforme estabilidade da tela.
 - `LCD_DRAW_BUFFER_HEIGHT` e `LCD_BOUNCE_BUFFER_LINES` equilibram desempenho x uso de PSRAM.
 - O backlight pode ser controlado via `LCD_PIN_BACKLIGHT` caso conectado.
+- Adicionamos um botão de engrenagem no rodapé da tela de cards. Ao tocar nele aparece um painel modal onde é possível informar SSID e senha e disparar a conexão Wi-Fi (modo STA). As credenciais são repassadas para `wifi_manager_connect()`, que inicializa o `esp_wifi` e realiza a conexão com o AP informado.
 
 ### Guia de estilo / paleta
 
